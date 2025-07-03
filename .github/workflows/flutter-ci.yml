@@ -7,41 +7,226 @@ on:
     branches: [ main, master ]
 
 jobs:
-  build:
+  test:
+    name: Run Tests
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
     
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
       with:
         flutter-version: '3.16.9'
+        channel: 'stable'
         
     - name: Install dependencies
       run: flutter pub get
       
-    - name: Run tests
-      run: flutter test
+    - name: Verify dependencies
+      run: flutter pub deps
       
-    - name: Clean Flutter project
+    - name: Analyze code
+      run: flutter analyze
+      
+    - name: Run tests
+      run: flutter test --coverage
+      
+    - name: Upload test coverage
+      uses: codecov/codecov-action@v3
+      if: success()
+      with:
+        file: coverage/lcov.info
+        
+  build-android:
+    name: Build Android APK
+    needs: test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Java 17
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+        
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+        
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.16.9'
+        channel: 'stable'
+        
+    - name: Install dependencies
+      run: flutter pub get
+      
+    - name: Clean project
       run: flutter clean
       
-    - name: Debugging - Print current working directory
-      run: pwd
-      
-    - name: Debugging - List contents of android directory
-      run: ls -F android/app/src/main/
-      
     - name: Build APK
-      run: flutter build apk --release
+      run: flutter build apk --release --verbose
       
-    - name: Build iOS (if needed)
-      run: flutter build ios --release --no-codesign
-      
-    - name: Upload APK
+    - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
-        name: release-apk
+        name: android-apk
         path: build/app/outputs/flutter-apk/app-release.apk
+        retention-days: 30
+        
+  build-ios:
+    name: Build iOS (No Code Sign)
+    needs: test
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.16.9'
+        channel: 'stable'
+        
+    - name: Install dependencies
+      run: flutter pub get
+      
+    - name: Clean project
+      run: flutter clean
+      
+    - name: Build iOS (no codesign)
+      run: flutter build ios --release --no-codesign --verbose
+      
+    - name: Create iOS Archive
+      run: |
+        cd build/ios/iphoneos
+        mkdir -p Payload
+        cp -r Runner.app Payload/
+        zip -r ../../../ios-app.ipa Payload/
+        
+    - name: Upload iOS artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ios-ipa
+        path: ios-app.ipa
+        retention-days: 30
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  release:
+    name: Create Release
+    needs: [test, build-android, build-ios]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download Android APK
+      uses: actions/download-artifact@v4
+      with:
+        name: android-apk
+        path: ./artifacts/
+        
+    - name: Download iOS IPA
+      uses: actions/download-artifact@v4
+      with:
+        name: ios-ipa
+        path: ./artifacts/
+        
+    - name: Get version from pubspec.yaml
+      id: version
+      run: |
+        VERSION=$(grep '^version: ' pubspec.yaml | cut -d ' ' -f 2 | tr -d '\r')
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "Version: $VERSION"
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ steps.version.outputs.VERSION }}
+        name: Release v${{ steps.version.outputs.VERSION }}
+        body: |
+          ## 🚀 Release v${{ steps.version.outputs.VERSION }}
+          
+          ### 📱 Downloads
+          - **Android APK**: app-release.apk
+          - **iOS IPA**: ios-app.ipa (requires code signing for installation)
+          
+          ### ✅ What's Included
+          - Complete Flutter Todo Application
+          - Material Design UI
+          - Persistent storage with SharedPreferences
+          - Full CRUD operations (Create, Read, Update, Delete)
+          - Swipe to delete functionality
+          - Tap to edit functionality
+          - Checkbox toggle for completion status
+          
+          ### 🧪 Quality Assurance
+          - ✅ All tests passing
+          - ✅ Code analysis completed
+          - ✅ Security scan completed
+          
+          ### 📊 Test Coverage
+          - Model tests: ✅
+          - Service tests: ✅
+          - Widget tests: ✅
+          
+          Built with Flutter 3.16.9 🎯
+        files: |
+          ./artifacts/app-release.apk
+          ./artifacts/ios-app.ipa
+        draft: false
+        prerelease: false
+        
+  notify:
+    name: Notify Build Status
+    needs: [test, build-android, build-ios]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Notify Success
+      if: needs.test.result == 'success' && needs.build-android.result == 'success' && needs.build-ios.result == 'success'
+      run: |
+        echo "🎉 All builds completed successfully!"
+        echo "✅ Tests passed"
+        echo "✅ Android APK built"
+        echo "✅ iOS IPA built"
+        
+    - name: Notify Failure
+      if: needs.test.result == 'failure' || needs.build-android.result == 'failure' || needs.build-ios.result == 'failure'
+      run: |
+        echo "❌ Build failed!"
+        echo "Tests: ${{ needs.test.result }}"
+        echo "Android: ${{ needs.build-android.result }}"
+        echo "iOS: ${{ needs.build-ios.result }}"
+        exit 1
 

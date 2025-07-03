@@ -16,13 +16,16 @@ jobs:
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.16.0'
+        flutter-version: '3.16.9'
         
     - name: Install dependencies
       run: flutter pub get
       
     - name: Run tests
       run: flutter test
+      
+    - name: Clean Flutter project
+      run: flutter clean
       
     - name: Build APK
       run: flutter build apk --release

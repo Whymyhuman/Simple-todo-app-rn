@@ -27,6 +27,12 @@ jobs:
     - name: Clean Flutter project
       run: flutter clean
       
+    - name: Debugging - Print current working directory
+      run: pwd
+      
+    - name: Debugging - List contents of android directory
+      run: ls -F android/app/src/main/
+      
     - name: Build APK
       run: flutter build apk --release
       

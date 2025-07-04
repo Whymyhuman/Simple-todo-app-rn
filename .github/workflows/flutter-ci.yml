@@ -33,6 +33,9 @@ jobs:
     - name: Debugging - List contents of android directory
       run: ls -F android/app/src/main/
       
+    - name: Debugging - List full project directory structure
+      run: ls -R
+      
     - name: Build APK
       run: flutter build apk --release
       

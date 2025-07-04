@@ -18,33 +18,35 @@ jobs:
       with:
         flutter-version: '3.16.9'
         
+    - name: Set working directory
+      run: | 
+        cd simple_todo_app_rn
+        echo "CURRENT_DIR=$(pwd)" >> $GITHUB_ENV
+
     - name: Install dependencies
+      working-directory: ${{ env.CURRENT_DIR }}
       run: flutter pub get
       
     - name: Run tests
+      working-directory: ${{ env.CURRENT_DIR }}
       run: flutter test
       
     - name: Clean Flutter project
+      working-directory: ${{ env.CURRENT_DIR }}
       run: flutter clean
       
-    - name: Debugging - Print current working directory
-      run: pwd
-      
-    - name: Debugging - List contents of android directory
-      run: ls -F android/app/src/main/
-      
-    - name: Debugging - List full project directory structure
-      run: ls -R
-      
     - name: Build APK
+      working-directory: ${{ env.CURRENT_DIR }}
       run: flutter build apk --release
       
     - name: Build iOS (if needed)
+      working-directory: ${{ env.CURRENT_DIR }}
       run: flutter build ios --release --no-codesign
       
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: release-apk
-        path: build/app/outputs/flutter-apk/app-release.apk
+        path: ${{ env.CURRENT_DIR }}/build/app/outputs/flutter-apk/app-release.apk
+
 
